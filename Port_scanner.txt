@@ -1,0 +1,81 @@
+import socket
+import threading
+from concurrent.futures import ThreadPoolExecutor
+import argparse
+from ipaddress import ip_network
+import termcolor
+
+def scan_port(ip, port):
+    """Scan a specific port on a target IP."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        sock.connect((ip, port))
+        try:
+            banner = sock.recv(1024).decode().strip()
+        except:
+            banner = "No banner detected"
+        print(termcolor.colored(f"[+] Open Port: {port} | Banner: {banner}", "green"))
+        sock.close()
+        return f"{port} - {banner}"
+    except:
+        return None
+
+def scan_target(ip, ports, threads):
+    """Scan the target IP for open ports."""
+    print(termcolor.colored(f"\nStarting scan on {ip}", "cyan"))
+    results = []
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [executor.submit(scan_port, ip, port) for port in ports]
+        for future in futures:
+            result = future.result()
+            if result:
+                results.append(result)
+    return results
+
+def get_targets(target_input):
+    """Parse target input for single or multiple IPs."""
+    targets = []
+    if '/' in target_input:
+        # CIDR notation
+        targets = [str(ip) for ip in ip_network(target_input, strict=False)]
+    elif ',' in target_input:
+        # Multiple IPs
+        targets = target_input.split(',')
+    else:
+        # Single IP
+        targets = [target_input]
+    return targets
+
+def main():
+    parser = argparse.ArgumentParser(description="Advanced Port Scanner for Kali Linux")
+    parser.add_argument("-t", "--targets", type=str, required=True, help="Target IP(s) or CIDR range (e.g., 192.168.1.1 or 192.168.1.0/24)")
+    parser.add_argument("-p", "--ports", type=str, required=True, help="Ports to scan (e.g., 22,80,443 or 1-65535)")
+    parser.add_argument("-o", "--output", type=str, help="Output file to save the scan results")
+    parser.add_argument("--threads", type=int, default=10, help="Number of threads (default: 10)")
+    args = parser.parse_args()
+
+    # Parse ports
+    if '-' in args.ports:
+        start, end = map(int, args.ports.split('-'))
+        ports = range(start, end + 1)
+    else:
+        ports = [int(port) for port in args.ports.split(',')]
+
+    # Parse targets
+    targets = get_targets(args.targets)
+
+    # Perform scanning
+    results = []
+    for target in targets:
+        results += scan_target(target, ports, args.threads)
+
+    # Save results to file if specified
+    if args.output:
+        with open(args.output, "w") as file:
+            for line in results:
+                file.write(line + "\n")
+        print(termcolor.colored(f"\nResults saved to {args.output}", "yellow"))
+
+if __name__ == "__main__":
+    main()
